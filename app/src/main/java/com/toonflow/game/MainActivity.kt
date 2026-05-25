@@ -55,22 +55,44 @@ class MainActivity : AppCompatActivity() {
 
         // 原生直接修改 WebView 布局，让键盘弹出时 WebView 高度自动缩小
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { _, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            // 1. 获取安全的系统窗口 Insets（合并状态栏、导航栏和刘海挖孔区域）
+            val safeType = WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            val safeInsets = insets.getInsets(safeType)
+            val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
 
-            // 原生处理：直接修改 WebView 的 bottomMargin，让 WebView 被键盘顶上去
-            val params = webView.layoutParams as FrameLayout.LayoutParams
-            params.bottomMargin = ime.bottom
-            webView.layoutParams = params
-
-            // 同时传递系统栏 insets 给 H5（用于状态栏/导航栏）
+            // 2. 获取屏幕密度，用于将物理像素转为 H5 认的 CSS 像素
             val density = resources.displayMetrics.density
-            // android-inset-top
-            val top = (systemBars.top / density).toInt()
-            val bottom = (systemBars.bottom / density).toInt()
-            val js = "window.androidInsets = {top:$top,bottom:$bottom};" +
-                     "window.dispatchEvent(new CustomEvent('android-insets'));"
+
+            // 3. 计算 CSS 像素（保留浮点数精度，传给 H5）
+            val top = safeInsets.top / density
+            val bottom = safeInsets.bottom / density
+            // 如果 H5 那边用到了 ime（键盘高度），顺便也算好传过去
+            val ime = imeInsets.bottom / density
+
+            // 4. 将计算好的 CSS 逻辑像素传递给 H5
+            val js = "window.androidInsets = {top: $top, bottom: $bottom, ime: $ime};" +
+                    "window.dispatchEvent(new CustomEvent('android-insets'));"
             webView.evaluateJavascript(js, null)
+
+            // 注入一段侦察 JS：打印 H5 的设备像素比，并将两套单位都传给 H5
+            val debugJs = """
+                try {
+                    var h5Info = 'H5 真实环境 -> DPR: ' + window.devicePixelRatio + 
+                                 ', innerHeight: ' + window.innerHeight;
+                    window.Android.log(h5Info);
+                    window.console.log(h5Info);
+                  
+                } catch(e) {
+                    window.Android.log('注入执行错误: ' + e.message);
+                }
+            """.trimIndent()
+
+            webView.evaluateJavascript(debugJs, null)
+
+            // 5. 原生 WebView 底部边距随键盘动态抬起（这里必须用原始的物理像素 imeInsets.bottom）
+            val params = webView.layoutParams as FrameLayout.LayoutParams
+            params.bottomMargin = imeInsets.bottom
+            webView.layoutParams = params
 
             insets
         }
