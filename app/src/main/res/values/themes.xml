@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ToonflowGame" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">#2458d8</item>
+        <item name="colorPrimaryDark">#081425</item>
+        <item name="colorAccent">#ff9a1f</item>
+        <item name="android:windowBackground">#081425</item>
+        <item name="android:windowFullscreen">false</item>
+    </style>
+</resources>

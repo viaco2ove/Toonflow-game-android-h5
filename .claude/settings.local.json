@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -rf \"D:/Users/viaco/tools/Toonflow-game/Toonflow-game-android-h5/app/src/main/assets/dist/\"*)",
+      "Bash(cp -r \"D:/Users/viaco/tools/Toonflow-game/Toonflow-game-web/dist/\"* \"D:/Users/viaco/tools/Toonflow-game/Toonflow-game-android-h5/app/src/main/assets/dist/\")",
+      "Bash(gradle assembleDebug)"
+    ]
+  }
+}
