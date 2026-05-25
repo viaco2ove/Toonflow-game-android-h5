@@ -9,6 +9,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.view.View
+import android.view.WindowInsets
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -52,16 +53,24 @@ class MainActivity : AppCompatActivity() {
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        // 监听系统栏 insets，传递给 H5（单位：px）
+        // 原生直接修改 WebView 布局，让键盘弹出时 WebView 高度自动缩小
         ViewCompat.setOnApplyWindowInsetsListener(rootLayout) { _, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
-            val top = systemBars.top
-            val bottom = systemBars.bottom
-            val imeBottom = ime.bottom
-            val js = "window.androidInsets = {top:$top,bottom:$bottom,ime:$imeBottom};" +
+
+            // 原生处理：直接修改 WebView 的 bottomMargin，让 WebView 被键盘顶上去
+            val params = webView.layoutParams as FrameLayout.LayoutParams
+            params.bottomMargin = ime.bottom
+            webView.layoutParams = params
+
+            // 同时传递系统栏 insets 给 H5（用于状态栏/导航栏）
+            val density = resources.displayMetrics.density
+            val top = (systemBars.top / density).toInt()
+            val bottom = (systemBars.bottom / density).toInt()
+            val js = "window.androidInsets = {top:$top,bottom:$bottom};" +
                      "window.dispatchEvent(new CustomEvent('android-insets'));"
             webView.evaluateJavascript(js, null)
+
             insets
         }
 
@@ -81,11 +90,23 @@ class MainActivity : AppCompatActivity() {
 
         webView.addJavascriptInterface(JSBridge(), "Android")
         WebView.setWebContentsDebuggingEnabled(true)
-        webView.webChromeClient = WebChromeClient()
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
+                if (request == null) return
+                val resources = request.resources
+                val granted = resources.filter {
+                    it == android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                }.toTypedArray()
+                if (granted.isNotEmpty()) {
+                    request.grant(granted)
+                } else {
+                    request.deny()
+                }
+            }
+        }
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                // 通知 H5 进入安卓设备模式
                 webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('android-ready'));", null)
             }
         }
