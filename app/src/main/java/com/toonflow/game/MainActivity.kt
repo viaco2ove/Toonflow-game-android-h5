@@ -65,6 +65,7 @@ class MainActivity : AppCompatActivity() {
 
             // 同时传递系统栏 insets 给 H5（用于状态栏/导航栏）
             val density = resources.displayMetrics.density
+            // android-inset-top
             val top = (systemBars.top / density).toInt()
             val bottom = (systemBars.bottom / density).toInt()
             val js = "window.androidInsets = {top:$top,bottom:$bottom};" +
@@ -86,6 +87,9 @@ class MainActivity : AppCompatActivity() {
             allowFileAccessFromFileURLs = true
             @Suppress("DEPRECATION")
             allowUniversalAccessFromFileURLs = true
+            // WebView 默认拒绝 getUserMedia，需要显式启用
+            @Suppress("DEPRECATION")
+            setMediaPlaybackRequiresUserGesture(false)
         }
 
         webView.addJavascriptInterface(JSBridge(), "Android")
