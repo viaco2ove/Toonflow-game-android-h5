@@ -79,7 +79,7 @@ class MainActivity : AppCompatActivity() {
                 try {
                     var h5Info = 'H5 真实环境 -> DPR: ' + window.devicePixelRatio + 
                                  ', innerHeight: ' + window.innerHeight;
-                    window.Android.log(h5Info);
+//                    window.Android.log(h5Info);
                     window.console.log(h5Info);
                   
                 } catch(e) {
