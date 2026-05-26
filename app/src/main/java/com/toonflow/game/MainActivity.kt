@@ -194,14 +194,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     inner class JSBridge {
-        @JavascriptInterface fun startSpeech() {
+        @JavascriptInterface fun requestMicPermission() {
             runOnUiThread {
                 if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
+                    == PackageManager.PERMISSION_GRANTED) {
+                    dispatchEvent("permission-granted")
+                } else {
+                    ActivityCompat.requestPermissions(
+                        this@MainActivity,
+                        arrayOf(Manifest.permission.RECORD_AUDIO),
+                        RECORD_AUDIO_PERMISSION
+                    )
+                }
+            }
+        }
+
+        @JavascriptInterface fun startSpeech() {
+            runOnUiThread {
+                android.util.Log.d("Android", "startSpeech called")
+                if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
                     != PackageManager.PERMISSION_GRANTED) {
+                    android.util.Log.d("Android", "Permission not granted, requesting")
                     ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO), RECORD_AUDIO_PERMISSION)
                     return@runOnUiThread
                 }
                 if (!isListening && speechRecognizer != null) {
+                    android.util.Log.d("Android", "Starting speech recognition")
                     val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                         putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CHINESE.toString())
