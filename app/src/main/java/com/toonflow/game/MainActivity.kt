@@ -267,7 +267,7 @@ class MainActivity : AppCompatActivity() {
             val html = reader.readText()
             reader.close()
             stream.close()
-            webView.loadDataWithBaseURL("http://localhost/", html, "text/html", "UTF-8", null)
+            webView.loadDataWithBaseURL("https://localhost/", html, "text/html", "UTF-8", null)
         } catch (e: Exception) {
             e.printStackTrace()
         }
