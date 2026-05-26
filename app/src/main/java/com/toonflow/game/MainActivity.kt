@@ -109,9 +109,6 @@ class MainActivity : AppCompatActivity() {
             allowFileAccessFromFileURLs = true
             @Suppress("DEPRECATION")
             allowUniversalAccessFromFileURLs = true
-            // WebView 默认拒绝 getUserMedia，需要显式启用
-            @Suppress("DEPRECATION")
-            setMediaPlaybackRequiresUserGesture(false)
         }
 
         webView.addJavascriptInterface(JSBridge(), "Android")
@@ -135,6 +132,12 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('android-ready'));", null)
             }
+        }
+
+        // 进 APP 就申请麦克风运行时权限，否则 getUserMedia 打不开音频源
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), RECORD_AUDIO_PERMISSION)
         }
 
         initSpeechRecognizer()
@@ -267,7 +270,8 @@ class MainActivity : AppCompatActivity() {
             val html = reader.readText()
             reader.close()
             stream.close()
-            webView.loadDataWithBaseURL("https://localhost/", html, "text/html", "UTF-8", null)
+            // localhost 在 Chromium 中默认就是 secure context，不需要 https
+            webView.loadDataWithBaseURL("http://localhost/", html, "text/html", "UTF-8", null)
         } catch (e: Exception) {
             e.printStackTrace()
         }
