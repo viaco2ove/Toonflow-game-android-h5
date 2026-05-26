@@ -2,12 +2,12 @@ package com.toonflow.game
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Bundle
-import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
-import android.speech.SpeechRecognizer
+import android.util.Base64
 import android.view.View
 import android.view.WindowInsets
 import android.webkit.JavascriptInterface
@@ -23,18 +23,24 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.BufferedReader
+import java.io.ByteArrayOutputStream
 import java.io.InputStreamReader
-import java.util.Locale
+import java.io.ByteArrayInputStream
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var rootLayout: FrameLayout
-    private var speechRecognizer: SpeechRecognizer? = null
-    private var isListening = false
+    private var audioRecord: AudioRecord? = null
+    private var isRecording = false
+    private var recordingThread: Thread? = null
+    private val audioBuffer = ByteArrayOutputStream()
 
     companion object {
         private const val RECORD_AUDIO_PERMISSION = 100
+        private const val SAMPLE_RATE = 16000
+        private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
+        private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -140,51 +146,7 @@ class MainActivity : AppCompatActivity() {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), RECORD_AUDIO_PERMISSION)
         }
 
-        initSpeechRecognizer()
         loadHtmlFromAssets()
-    }
-
-    private fun initSpeechRecognizer() {
-        if (SpeechRecognizer.isRecognitionAvailable(this)) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {
-                    isListening = true
-                    dispatchEvent("speechstart")
-                }
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {
-                    dispatchEvent("speechvolume", rmsdB.toString())
-                }
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {
-                    isListening = false
-                    dispatchEvent("speechend")
-                }
-                override fun onError(error: Int) {
-                    isListening = false
-                    val msg = when(error) {
-                        SpeechRecognizer.ERROR_AUDIO -> "audio"
-                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "permission"
-                        SpeechRecognizer.ERROR_NETWORK -> "network"
-                        SpeechRecognizer.ERROR_NO_MATCH -> "nomatch"
-                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "timeout"
-                        else -> "error"
-                    }
-                    dispatchEvent("speecherror", msg)
-                }
-                override fun onResults(results: Bundle?) {
-                    isListening = false
-                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
-                    dispatchEvent("speechresult", text)
-                }
-                override fun onPartialResults(partialResults: Bundle?) {
-                    val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
-                    dispatchEvent("speechpartial", text)
-                }
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
-        }
     }
 
     private fun dispatchEvent(event: String, detail: String = "") {
@@ -193,7 +155,95 @@ class MainActivity : AppCompatActivity() {
         } else {
             "window.dispatchEvent(new CustomEvent('$event'));"
         }
-        webView.evaluateJavascript(js, null)
+        runOnUiThread {
+            webView.evaluateJavascript(js, null)
+        }
+    }
+
+    // PCM 转 WAV
+    private fun pcmToWav(pcmData: ByteArray): ByteArray {
+        val headerSize = 44
+        val totalSize = headerSize + pcmData.size
+        val wav = ByteArray(totalSize)
+
+        // RIFF header
+        wav[0] = 'R'.code.toByte()
+        wav[1] = 'I'.code.toByte()
+        wav[2] = 'F'.code.toByte()
+        wav[3] = 'F'.code.toByte()
+
+        // Chunk size
+        val chunkSize = totalSize - 8
+        wav[4] = (chunkSize and 0xFF).toByte()
+        wav[5] = (chunkSize shr 8 and 0xFF).toByte()
+        wav[6] = (chunkSize shr 16 and 0xFF).toByte()
+        wav[7] = (chunkSize shr 24 and 0xFF).toByte()
+
+        // Format
+        wav[8] = 'W'.code.toByte()
+        wav[9] = 'A'.code.toByte()
+        wav[10] = 'V'.code.toByte()
+        wav[11] = 'E'.code.toByte()
+
+        // Subchunk1 ID
+        wav[12] = 'f'.code.toByte()
+        wav[13] = 'm'.code.toByte()
+        wav[14] = 't'.code.toByte()
+        wav[15] = ' '.code.toByte()
+
+        // Subchunk1 size (16 for PCM)
+        wav[16] = 16
+        wav[17] = 0
+        wav[18] = 0
+        wav[19] = 0
+
+        // Audio format (1 for PCM)
+        wav[20] = 1
+        wav[21] = 0
+
+        // Num channels
+        val numChannels = 1
+        wav[22] = numChannels.toByte()
+        wav[23] = 0
+
+        // Sample rate
+        wav[24] = (SAMPLE_RATE and 0xFF).toByte()
+        wav[25] = (SAMPLE_RATE shr 8 and 0xFF).toByte()
+        wav[26] = (SAMPLE_RATE shr 16 and 0xFF).toByte()
+        wav[27] = (SAMPLE_RATE shr 24 and 0xFF).toByte()
+
+        // Byte rate = SampleRate * NumChannels * BitsPerSample/8
+        val byteRate = SAMPLE_RATE * numChannels * 2 // 16-bit
+        wav[28] = (byteRate and 0xFF).toByte()
+        wav[29] = (byteRate shr 8 and 0xFF).toByte()
+        wav[30] = (byteRate shr 16 and 0xFF).toByte()
+        wav[31] = (byteRate shr 24 and 0xFF).toByte()
+
+        // Block align = NumChannels * BitsPerSample/8
+        val blockAlign = numChannels * 2
+        wav[32] = blockAlign.toByte()
+        wav[33] = 0
+
+        // Bits per sample
+        wav[34] = 16
+        wav[35] = 0
+
+        // Subchunk2 ID
+        wav[36] = 'd'.code.toByte()
+        wav[37] = 'a'.code.toByte()
+        wav[38] = 't'.code.toByte()
+        wav[39] = 'a'.code.toByte()
+
+        // Subchunk2 size
+        val dataSize = pcmData.size
+        wav[40] = (dataSize and 0xFF).toByte()
+        wav[41] = (dataSize shr 8 and 0xFF).toByte()
+        wav[42] = (dataSize shr 16 and 0xFF).toByte()
+        wav[43] = (dataSize shr 24 and 0xFF).toByte()
+
+        // Copy PCM data
+        System.arraycopy(pcmData, 0, wav, 44, pcmData.size)
+        return wav
     }
 
     inner class JSBridge {
@@ -217,32 +267,98 @@ class MainActivity : AppCompatActivity() {
                 android.util.Log.d("Android", "startSpeech called")
                 if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.RECORD_AUDIO)
                     != PackageManager.PERMISSION_GRANTED) {
-                    android.util.Log.d("Android", "Permission not granted, requesting")
-                    ActivityCompat.requestPermissions(this@MainActivity, arrayOf(Manifest.permission.RECORD_AUDIO), RECORD_AUDIO_PERMISSION)
+                    android.util.Log.d("Android", "Permission not granted")
+                    dispatchEvent("speecherror", "permission")
                     return@runOnUiThread
                 }
-                if (!isListening && speechRecognizer != null) {
-                    android.util.Log.d("Android", "Starting speech recognition")
-                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.CHINESE.toString())
-                        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                        putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                    }
-                    speechRecognizer?.startListening(intent)
+
+                if (isRecording) {
+                    android.util.Log.d("Android", "Already recording")
+                    return@runOnUiThread
+                }
+
+                try {
+                    val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+                    audioRecord = AudioRecord(
+                        MediaRecorder.AudioSource.MIC,
+                        SAMPLE_RATE,
+                        CHANNEL_CONFIG,
+                        AUDIO_FORMAT,
+                        minBufferSize
+                    )
+
+                    audioBuffer.reset()
+                    isRecording = true
+                    audioRecord?.startRecording()
+                    dispatchEvent("speechstart")
+
+                    recordingThread = Thread {
+                        val buffer = ByteArray(minBufferSize)
+                        try {
+                            while (isRecording && audioRecord != null) {
+                                val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                                if (read > 0) {
+                                    audioBuffer.write(buffer, 0, read)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("AudioRecord", "Recording error", e)
+                        }
+                    }.apply { start() }
+
+                } catch (e: Exception) {
+                    android.util.Log.e("AudioRecord", "Start error", e)
+                    dispatchEvent("speecherror", "start_failed")
+                    isRecording = false
                 }
             }
         }
 
         @JavascriptInterface fun stopSpeech() {
-            runOnUiThread { speechRecognizer?.stopListening() }
+            android.util.Log.d("Android", "stopSpeech called")
+            if (!isRecording || audioRecord == null) {
+                android.util.Log.d("Android", "Not recording or audioRecord null")
+                return
+            }
+
+            isRecording = false
+            try {
+                audioRecord?.stop()
+                recordingThread?.join(500)
+            } catch (e: Exception) {
+                android.util.Log.e("AudioRecord", "Stop error", e)
+            }
+
+            val pcmData = audioBuffer.toByteArray()
+            if (pcmData.size < 1024) {
+                dispatchEvent("speecherror", "too_short")
+                return
+            }
+
+            try {
+                val wavData = pcmToWav(pcmData)
+                val base64 = Base64.encodeToString(wavData, Base64.NO_WRAP)
+                android.util.Log.d("Android", "Audio base64 size: ${base64.length}")
+                dispatchEvent("speechresult", base64)
+            } catch (e: Exception) {
+                android.util.Log.e("AudioRecord", "Encode error", e)
+                dispatchEvent("speecherror", "encode_failed")
+            } finally {
+                audioRecord?.release()
+                audioRecord = null
+            }
         }
 
         @JavascriptInterface fun cancelSpeech() {
-            runOnUiThread {
-                speechRecognizer?.cancel()
-                isListening = false
-            }
+            android.util.Log.d("Android", "cancelSpeech called")
+            isRecording = false
+            try {
+                audioRecord?.stop()
+                audioRecord?.release()
+                audioRecord = null
+                recordingThread?.join(200)
+            } catch (e: Exception) {}
+            audioBuffer.reset()
         }
 
         @JavascriptInterface fun toast(msg: String) {
@@ -283,6 +399,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        speechRecognizer?.destroy()
+        isRecording = false
+        try {
+            audioRecord?.stop()
+            audioRecord?.release()
+            audioRecord = null
+        } catch (e: Exception) {}
     }
 }
