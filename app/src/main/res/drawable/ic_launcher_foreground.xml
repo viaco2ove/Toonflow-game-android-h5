@@ -4,13 +4,75 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#2458d8"
-        android:pathData="M0,0h108v108H0z"/>
-    <path
-        android:fillColor="#ffffff"
-        android:pathData="M54,30 L74,50 L54,70 L34,50 Z"/>
-    <path
-        android:fillColor="#ff9a1f"
-        android:pathData="M54,40 L64,50 L54,60 L44,50 Z"/>
+
+    <!-- 渐变定义 -->
+    <!-- 背景渐变: 黑 -> 深蓝 -->
+    <group>
+        <!-- ===== 深色圆底 ===== -->
+        <!-- 圆心54,54 半径48 覆盖安全区 -->
+        <path
+            android:fillColor="#12121a"
+            android:pathData="M54,6 a48,48 0 1,0 0.001,0 z"/>
+        <path
+            android:fillColor="#1a1a2e"
+            android:pathData="M54,18 a36,36 0 1,0 0.001,0 z"/>
+        <path
+            android:fillColor="#16213e"
+            android:pathData="M54,30 a24,24 0 1,0 0.001,0 z"/>
+    </group>
+
+    <!-- ===== 中部: tf game 渐变文字 ===== -->
+    <!-- 用路径模拟文字, 简化为渐变色块文字效果 -->
+    <!-- 由于vector不支持text,用近似的几何色块组合 -->
+    <group>
+        <!-- "tf game" 用简单几何色条模拟文字位置 -->
+        <!-- t -->
+        <path android:fillColor="#38bdf8" android:pathData="M28,52 h8 v2 h-8 z"/>
+        <path android:fillColor="#38bdf8" android:pathData="M31,52 v6 h2 v-6 z"/>
+        <!-- f -->
+        <path android:fillColor="#5b8cf0" android:pathData="M40,50 h5 v2 h-5 z"/>
+        <path android:fillColor="#5b8cf0" android:pathData="M42,50 v8 h2 v-8 z"/>
+        <!-- 空格 -->
+        <!-- g -->
+        <path android:fillColor="#7b7cf6" android:pathData="M50,52 v8 h5 v-2 h-3 v-4 h3 v-2 z"/>
+        <path android:fillColor="#7b7cf6" android:pathData="M52,54 h3 v2 h-3 z"/>
+        <!-- a -->
+        <path android:fillColor="#9878f8" android:pathData="M58,54 v6 h5 v-6 z M60,56 h1 v2 h-1 z"/>
+        <!-- m -->
+        <path android:fillColor="#b070fa" android:pathData="M66,54 v6 h2 v-4 h1 v4 h2 v-6 z"/>
+        <!-- e -->
+        <path android:fillColor="#c084fc" android:pathData="M74,54 v6 h5 v-2 h-3 v-2 h3 v-2 z"/>
+    </group>
+
+    <!-- ===== 底部: 蓝色游戏机 贴底 ===== -->
+    <!-- 圆底边在y=102, 游戏机底部也在102 -->
+    <group>
+        <!-- 主体椭圆 中心54,88 rx26 ry14 -->
+        <path
+            android:fillColor="#3b82f6"
+            android:pathData="M54,74 a26,14 0 1,0 0.001,0 z"/>
+        <!-- 椭圆下半部分深色 -->
+        <path
+            android:fillColor="#1d4ed8"
+            android:pathData="M54,88 a26,14 0 0,0 26,0 z"/>
+        <!-- 顶部凸起 -->
+        <path android:fillColor="#2563eb" android:pathData="M48,70 h12 v6 h-12 z"/>
+
+        <!-- 左侧蓝色圆形按钮 -->
+        <path android:fillColor="#1e293b" android:pathData="M38,88 a8,8 0 1,0 0.001,0 z"/>
+        <path android:fillColor="#60a5fa" android:pathData="M38,88 a5,5 0 1,0 0.001,0 z"/>
+        <path android:fillColor="#93c5fd" android:pathData="M36,86 a1.5,1.5 0 1,0 0.001,0 z"/>
+
+        <!-- 右侧黄色十字键 -->
+        <path android:fillColor="#1e293b" android:pathData="M70,88 a8,8 0 1,0 0.001,0 z"/>
+        <path android:fillColor="#facc15" android:pathData="M67,87 h6 v2 h-6 z"/>
+        <path android:fillColor="#facc15" android:pathData="M69,85 h2 v6 h-2 z"/>
+
+        <!-- 高光 -->
+        <path
+            android:fillColor="#ffffff"
+            android:pathData="M48,80 a12,4 0 1,0 0.001,0 z"
+            android:fillAlpha="0.1"/>
+    </group>
+
 </vector>
