@@ -17,3 +17,4 @@ captures/
 *.jks
 /tmp/
 /test/playwright/
+/.env
