@@ -2,30 +2,33 @@ package com.toonflow.game
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
 import android.view.View
-import android.view.WindowInsets
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import java.io.BufferedReader
 import java.io.ByteArrayOutputStream
+import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.ByteArrayInputStream
 
 class MainActivity : AppCompatActivity() {
 
@@ -42,6 +45,36 @@ class MainActivity : AppCompatActivity() {
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
     }
+
+    // 文件选择器回调
+    private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var uploadMessage: ValueCallback<Array<Uri>>? = null
+
+    // Android 5.0+ 文件选择器
+    private val fileChooserLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val uris = if (result.resultCode == RESULT_OK && result.data != null) {
+                // 获取真实文件 URI
+                result.data?.let { data ->
+                    val uris = mutableListOf<Uri>()
+                    data.clipData?.let { clip ->
+                        for (i in 0 until clip.itemCount) {
+                            uris.add(clip.getItemAt(i).uri)
+                        }
+                    }
+                    if (uris.isEmpty()) {
+                        data.data?.let { uris.add(it) }
+                    }
+                    uris.toTypedArray()
+                } ?: arrayOf()
+            } else {
+                arrayOf()
+            }
+            uploadMessage?.onReceiveValue(uris)
+            filePathCallback?.onReceiveValue(uris)
+            uploadMessage = null
+            filePathCallback = null
+        }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -131,6 +164,52 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     request.deny()
                 }
+            }
+
+            // Android 5.0+ 文件选择器接管
+            override fun onShowFileChooser(
+                webView: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: WebChromeClient.FileChooserParams?
+            ): Boolean {
+                if (filePathCallback == null || fileChooserParams == null) return true
+
+                uploadMessage = filePathCallback
+                this@MainActivity.filePathCallback = filePathCallback
+
+                // 读取 acceptTypes，映射 MIME
+                val acceptTypes = fileChooserParams.acceptTypes
+                val mimeTypes = if (acceptTypes != null && acceptTypes.isNotEmpty()) {
+                    acceptTypes.map { type: String ->
+                        when {
+                            type.startsWith("image/") -> "image/*"
+                            type.startsWith("audio/") -> "audio/*"
+                            type.startsWith("video/") -> "video/*"
+                            else -> type
+                        }
+                    }.distinct().joinToString(",")
+                } else {
+                    "*/*"
+                }
+
+                // 根据 acceptTypes 数量决定 type：多个类型用 EXTRA_MIME_TYPES，单个直接用 type
+                val isMultiple = fileChooserParams.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    if (mimeTypes.contains(",")) {
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes.split(",").toTypedArray())
+                    } else {
+                        type = mimeTypes
+                    }
+                    if (isMultiple) {
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                    }
+                }
+
+                val chooser = Intent.createChooser(intent, "选择文件")
+                fileChooserLauncher.launch(chooser)
+                return true
             }
         }
         webView.webViewClient = object : WebViewClient() {
