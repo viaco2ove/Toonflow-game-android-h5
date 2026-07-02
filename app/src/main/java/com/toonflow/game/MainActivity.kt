@@ -48,31 +48,29 @@ class MainActivity : AppCompatActivity() {
 
     // 文件选择器回调
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
-    private var uploadMessage: ValueCallback<Array<Uri>>? = null
 
     // Android 5.0+ 文件选择器
     private val fileChooserLauncher: ActivityResultLauncher<Intent> =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val uris = if (result.resultCode == RESULT_OK && result.data != null) {
-                // 获取真实文件 URI
+                // 获取真实文件 URI（支持多选）
+                val resultUris = mutableListOf<Uri>()
                 result.data?.let { data ->
-                    val uris = mutableListOf<Uri>()
                     data.clipData?.let { clip ->
                         for (i in 0 until clip.itemCount) {
-                            uris.add(clip.getItemAt(i).uri)
+                            resultUris.add(clip.getItemAt(i).uri)
                         }
                     }
-                    if (uris.isEmpty()) {
-                        data.data?.let { uris.add(it) }
+                    if (resultUris.isEmpty()) {
+                        data.data?.let { resultUris.add(it) }
                     }
-                    uris.toTypedArray()
-                } ?: arrayOf()
+                }
+                resultUris.toTypedArray()
             } else {
                 arrayOf()
             }
-            uploadMessage?.onReceiveValue(uris)
+            // 只调用一次，避免 "result was already called" 崩溃
             filePathCallback?.onReceiveValue(uris)
-            uploadMessage = null
             filePathCallback = null
         }
 
@@ -174,7 +172,6 @@ class MainActivity : AppCompatActivity() {
             ): Boolean {
                 if (filePathCallback == null || fileChooserParams == null) return true
 
-                uploadMessage = filePathCallback
                 this@MainActivity.filePathCallback = filePathCallback
 
                 // 读取 acceptTypes，映射 MIME
