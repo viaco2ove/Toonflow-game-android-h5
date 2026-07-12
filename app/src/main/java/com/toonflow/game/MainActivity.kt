@@ -8,6 +8,11 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import android.content.ContentValues
+import java.net.HttpURLConnection
+import java.net.URL
 import android.os.Bundle
 import android.util.Base64
 import android.view.View
@@ -49,6 +54,10 @@ class MainActivity : AppCompatActivity() {
     // 文件选择器回调
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
 
+    // 保存文件上下文（用户选位置 -> 写入）
+    private data class PendingDownload(val url: String, val bytes: ByteArray, val mimeType: String)
+    private var pendingDownload: PendingDownload? = null
+
     // Android 5.0+ 文件选择器
     private val fileChooserLauncher: ActivityResultLauncher<Intent> =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -72,6 +81,45 @@ class MainActivity : AppCompatActivity() {
             // 只调用一次，避免 "result was already called" 崩溃
             filePathCallback?.onReceiveValue(uris)
             filePathCallback = null
+        }
+
+    // 文件保存选择器（让用户选保存位置）
+    private val fileSaveLauncher: ActivityResultLauncher<Intent> =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != RESULT_OK || result.data == null) {
+                pendingDownload = null
+                return@registerForActivityResult
+            }
+            val outputUri = result.data?.data
+            if (outputUri == null) {
+                pendingDownload = null
+                return@registerForActivityResult
+            }
+            val pending = pendingDownload
+            pendingDownload = null
+            if (pending == null) return@registerForActivityResult
+
+            Thread {
+                try {
+                    // 先下载文件内容
+                    val conn = URL(pending.url).openConnection() as HttpURLConnection
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 15000
+                    val bytes = conn.inputStream.readBytes()
+                    conn.disconnect()
+
+                    // 写入用户选择的位置
+                    contentResolver.openOutputStream(outputUri)?.use { os -> os.write(bytes) }
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "保存成功", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Android", "saveFile failed", e)
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }.start()
         }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -213,6 +261,19 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('android-ready'));", null)
+            }
+        }
+
+        // 接管文件下载：让浏览器下载管理器处理
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentSize ->
+            try {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    data = Uri.parse(url)
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Download failed", e)
+                Toast.makeText(this@MainActivity, "无法处理下载链接", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -443,6 +504,19 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface fun log(msg: String) {
             android.util.Log.d("Android", msg)
+        }
+
+        // 下载文件：先让用户选保存位置，再下载写入（解决 Android WebView Blob 下载不生效的问题）
+        @JavascriptInterface fun downloadFile(url: String, filename: String, mimeType: String) {
+            // 保存上下文，fileSaveLauncher 回调时会用到
+            pendingDownload = PendingDownload(url, byteArrayOf(), mimeType)
+
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                this.type = mimeType
+                putExtra(Intent.EXTRA_TITLE, filename)
+            }
+            fileSaveLauncher.launch(intent)
         }
     }
 
