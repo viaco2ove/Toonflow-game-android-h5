@@ -1,3 +1,4 @@
+Android 系统中，每个 App 的 WebView 都需要在代码中单独调用 WebView.setWebContentsDebuggingEnabled(true) 才能被检测到
 # Chrome 远程调试安卓h5
 `chrome://inspect/#devices`
 然后点击inspect 或者 inspect fallback
