@@ -143,3 +143,6 @@ Backend: `toonflow-game-app/CLAUDE.md`
 
 前端代码在 `Toonflow-game-web` 仓库，开发时直接运行 `yarn dev` 即可查看效果，不需要在当前仓库执行 `yarn build`。
  
+## 不允许随意放置测试和临时文档
+测试脚本和文档和临时文档
+只允许放置在.cache 文件夹下。
