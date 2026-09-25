@@ -39,3 +39,7 @@ cd app && ./gradlew assembleDebug
 ## API 配置
 
 在设置页面配置后端地址，默认 `http://127.0.0.1:60002`
+
+
+# Chrome 远程调试安卓h5
+`chrome://inspect/#devices`
