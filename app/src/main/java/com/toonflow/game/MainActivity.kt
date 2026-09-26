@@ -298,6 +298,14 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('android-ready'));", null)
+                // ★ 补发 insets：首帧布局时页面还没加载完，OnApplyWindowInsetsListener 的
+                //   第一次 evaluateJavascript 会落空（页面尚无监听器）→ H5 拿到的 androidInsets 是
+                //   undefined。页面加载完成后把当前值再注入一次，H5 的 android-insets 监听即可生效。
+                if (!lastInsetTop.isNaN()) {
+                    val js = "window.androidInsets = {top: $lastInsetTop, bottom: $lastInsetBottom, ime: $lastInsetIme};" +
+                            "window.dispatchEvent(new CustomEvent('android-insets'));"
+                    webView.evaluateJavascript(js, null)
+                }
             }
         }
 
