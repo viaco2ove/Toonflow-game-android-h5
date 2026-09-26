@@ -19,6 +19,8 @@ import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -31,6 +33,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.webkit.WebViewAssetLoader
 import java.io.ByteArrayOutputStream
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -257,12 +260,32 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
         }
+        // ★ WebViewAssetLoader：把 file:///android_asset/ 路径映射到
+        //   https://appassets.androidplatform.net/assets/，让 WebView 按 URL 加载多个外置资源。
+        //   WebViewAssetLoader 默认 prefix 就是 /assets/，并把 /assets/ 前缀剥掉后到 assets 根目录。
+        //   所以 dist/index.html → 完整 URL 必须是 /assets/dist/index.html。
+        val assetLoader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+
         webView.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(
+                view: WebView,
+                request: WebResourceRequest
+            ): WebResourceResponse? {
+                val response = assetLoader.shouldInterceptRequest(request.url)
+                android.util.Log.d("WebViewAsset", "${request.url} -> ${if (response != null) "OK" else "PASS"}")
+                return response
+            }
+
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 webView.evaluateJavascript("window.dispatchEvent(new CustomEvent('android-ready'));", null)
             }
         }
+
+        // 把 WebView 内部 console 转发到 logcat（debug 包附带）— 已开启
+        // WebView.setWebContentsDebuggingEnabled(true) // 上面已设
 
         // 接管文件下载：让浏览器下载管理器处理
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentSize ->
@@ -530,17 +553,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadHtmlFromAssets() {
-        try {
-            val stream = assets.open("dist/index.html")
-            val reader = BufferedReader(InputStreamReader(stream, "UTF-8"))
-            val html = reader.readText()
-            reader.close()
-            stream.close()
-            // localhost 在 Chromium 中默认就是 secure context，不需要 https
-            webView.loadDataWithBaseURL("http://localhost/", html, "text/html", "UTF-8", null)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // ★ 优化：用 WebViewAssetLoader 提供的外置 URL 加载。
+        //   dist/index.html 不再以字符串塞 WebView，而是按 URL 加载 → JS/CSS 走 HTTP 缓存。
+        //   WebViewAssetLoader 把 /assets/ 前缀剥掉后到 assets 根目录，
+        //   所以这里写 /assets/dist/index.html（→ 读 file:///android_asset/dist/index.html）。
+        webView.loadUrl("https://appassets.androidplatform.net/assets/dist/index.html")
     }
 
     override fun onBackPressed() {
