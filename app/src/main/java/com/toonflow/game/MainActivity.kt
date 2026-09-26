@@ -3,6 +3,7 @@ package com.toonflow.game
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -46,6 +47,12 @@ class MainActivity : AppCompatActivity() {
     private var isRecording = false
     private var recordingThread: Thread? = null
     private val audioBuffer = ByteArrayOutputStream()
+
+    // insets 去抖缓存：无变化时不再注入 JS / 重新布局
+    private var lastInsetTop = Float.NaN
+    private var lastInsetBottom = Float.NaN
+    private var lastInsetIme = Float.NaN
+    private var lastImeBottomPx = -1
 
     companion object {
         private const val RECORD_AUDIO_PERMISSION = 100
@@ -157,30 +164,23 @@ class MainActivity : AppCompatActivity() {
             // 如果 H5 那边用到了 ime（键盘高度），顺便也算好传过去
             val ime = imeInsets.bottom / density
 
-            // 4. 将计算好的 CSS 逻辑像素传递给 H5
-            val js = "window.androidInsets = {top: $top, bottom: $bottom, ime: $ime};" +
-                    "window.dispatchEvent(new CustomEvent('android-insets'));"
-            webView.evaluateJavascript(js, null)
-
-            // 注入一段侦察 JS：打印 H5 的设备像素比，并将两套单位都传给 H5
-            val debugJs = """
-                try {
-                    var h5Info = 'H5 真实环境 -> DPR: ' + window.devicePixelRatio + 
-                                 ', innerHeight: ' + window.innerHeight;
-//                    window.Android.log(h5Info);
-                    window.console.log(h5Info);
-                  
-                } catch(e) {
-                    window.Android.log('注入执行错误: ' + e.message);
-                }
-            """.trimIndent()
-
-            webView.evaluateJavascript(debugJs, null)
+            // 4. 仅在 insets 真正发生变化时才注入，避免无变化时反复 evaluateJavascript 造成跨进程抖动
+            if (top != lastInsetTop || bottom != lastInsetBottom || ime != lastInsetIme) {
+                lastInsetTop = top
+                lastInsetBottom = bottom
+                lastInsetIme = ime
+                val js = "window.androidInsets = {top: $top, bottom: $bottom, ime: $ime};" +
+                        "window.dispatchEvent(new CustomEvent('android-insets'));"
+                webView.evaluateJavascript(js, null)
+            }
 
             // 5. 原生 WebView 底部边距随键盘动态抬起（这里必须用原始的物理像素 imeInsets.bottom）
-            val params = webView.layoutParams as FrameLayout.LayoutParams
-            params.bottomMargin = imeInsets.bottom
-            webView.layoutParams = params
+            if (imeInsets.bottom != lastImeBottomPx) {
+                lastImeBottomPx = imeInsets.bottom
+                val params = webView.layoutParams as FrameLayout.LayoutParams
+                params.bottomMargin = imeInsets.bottom
+                webView.layoutParams = params
+            }
 
             insets
         }
@@ -200,7 +200,25 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.addJavascriptInterface(JSBridge(), "Android")
-        WebView.setWebContentsDebuggingEnabled(true)
+
+        // ★ 仅调试包开启 WebView 调试态；调试态会额外保留 DOM/JS 调试信息，带来可观的运行开销
+        val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        WebView.setWebContentsDebuggingEnabled(debuggable)
+
+        // ★ 显式声明高刷新率：不声明时系统默认按 60Hz 调度，高刷屏上画面会明显发滞
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val best = display?.supportedModes?.maxByOrNull { it.refreshRate }
+            if (best != null) {
+                val attrs = window.attributes
+                attrs.preferredDisplayModeId = best.modeId
+                window.attributes = attrs
+            }
+        }
+
+        // ★ 渲染进程优先级：默认策略下 WebView 渲染进程可能被降级调度
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
+        }
         webView.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
                 if (request == null) return
@@ -273,9 +291,8 @@ class MainActivity : AppCompatActivity() {
                 view: WebView,
                 request: WebResourceRequest
             ): WebResourceResponse? {
-                val response = assetLoader.shouldInterceptRequest(request.url)
-                android.util.Log.d("WebViewAsset", "${request.url} -> ${if (response != null) "OK" else "PASS"}")
-                return response
+                // 不在请求拦截里做同步日志：每个子资源请求都写 logcat 会拖慢加载与合成
+                return assetLoader.shouldInterceptRequest(request.url)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
